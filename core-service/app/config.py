@@ -50,6 +50,12 @@ class Settings:
         self.mock_tick_seconds = _int("MOCK_TICK_SECONDS", 5, lo=2, hi=60)
         self.mock_time_scale = _int("MOCK_TIME_SCALE", 60, lo=1)
         self.mock_seed = int(os.environ["MOCK_SEED"]) if os.getenv("MOCK_SEED") else None
+        self.mock_admin_api_key = os.getenv("MOCK_ADMIN_API_KEY", "").strip()
+        self.mock_donors = _int("MOCK_DONORS", 60, lo=10, hi=500)
+        # Pendonor palsu dianggap "pulih" (boleh donor lagi) setelah N menit nyata,
+        # agar kumpulan pendonor tidak habis selama demo panjang.
+        self.mock_donor_recovery_minutes = _int("MOCK_DONOR_RECOVERY_MINUTES", 10, lo=1)
+        self.mock_max_active_requests = _int("MOCK_MAX_ACTIVE_REQUESTS", 8, lo=1)
 
         # --- Umpan perubahan dan paginasi (AGENTS.md bagian 3 dan 4) ---
         self.changes_keep = _int("CHANGES_KEEP", 500, lo=50)

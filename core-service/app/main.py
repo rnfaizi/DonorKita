@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from . import errors, handlers, jobs
+from . import errors, handlers, jobs, mock
 from .config import settings
 from .db import connect, init_db
 from .modules import changes, donors, drives, locations, matching, notifications, requests, stock
@@ -49,9 +49,14 @@ async def lifespan(app: FastAPI):
             conn.commit()
         finally:
             conn.close()
-    task = asyncio.create_task(jobs.run_forever()) if settings.enable_jobs else None
+    tasks = []
+    if settings.enable_jobs:
+        tasks.append(asyncio.create_task(jobs.run_forever()))
+    if settings.mock_mode:
+        mock.start()
+        tasks.append(asyncio.create_task(mock.run_forever()))
     yield
-    if task:
+    for task in tasks:
         task.cancel()
 
 
@@ -59,7 +64,7 @@ app = FastAPI(title="DonorKita Core Service", version=settings.version,
               description=DESCRIPTION, lifespan=lifespan)
 errors.install(app)
 
-for module in (requests, matching, donors, drives, stock, locations, notifications, changes):
+for module in (requests, matching, donors, drives, stock, locations, notifications, changes, mock):
     app.include_router(module.router)
 
 

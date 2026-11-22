@@ -20,7 +20,7 @@ Kelompok **donorkita** (Kelas K02, tema Health & Wellbeing): Reza Nashwan Faizi 
 | 2 | Aturan domain dan modul bounded context, API publik dan API aplikasi, job latar belakang, data uji | selesai |
 | 3a | auth-service: akun, JWT + refresh token, API key kelompok lain, akun uji | selesai |
 | 3b | Docker Compose (core, auth, gateway, tunnel) dan gateway Nginx | selesai |
-| 3c | Mock mode (AGENTS.md bagian 7) | belum |
+| 3c | Mock mode (AGENTS.md bagian 7) | selesai |
 | 4 | Deploy STB dan Cloudflare Tunnel | panduan siap, menunggu eksekusi |
 | 5 | README.pdf, API Registry, API key untuk kelompok lain | belum |
 
@@ -259,13 +259,68 @@ auth-service: 10 pengujian (daftar, login, klaim JWT, validasi, larangan mendaft
 petugas, rotasi refresh token, pembuatan akun petugas oleh admin, siklus API key termasuk
 pencabutan, API key uji, kenaikan `seq`).
 
-core-service: 52 pengujian: fondasi (envelope, error, seq, umpan perubahan), aturan domain (kompatibilitas,
+core-service: 56 pengujian: fondasi (envelope, error, seq, umpan perubahan), aturan domain (kompatibilitas,
 kelayakan, skor, geo), alur penuh permintaan sampai terpenuhi, eskalasi radius, kedaluwarsa,
 penundaan pendonor, verifikasi dan hak akses, validasi input, kontrak kegiatan donor untuk
 KotaSiaga (`TitikTujuan`), reservasi dan slot, level stok dan notifikasi, ringkasan tanpa data
-pribadi, dan reset umpan perubahan.
+pribadi, reset umpan perubahan, serta mock mode (endpoint tersembunyi saat mati, kunci admin,
+`seq` naik di setiap tick, dan kelima skenario demo).
 
-## Mock mode *(menyusul, Tahap 3)*
+## Mock mode
+
+Untuk demo dan integrasi, `MOCK_MODE=true` membuat data bergerak sendiri. Yang diacak hanya
+**input**: aksi pemohon, pendonor, petugas, dan perubahan stok palsu. Setiap aksi memanggil fungsi
+domain yang sama dengan endpoint API, jadi verifikasi, pencocokan, kelayakan, eskalasi, dan
+notifikasi berjalan dengan kode asli. Mock tidak pernah menulis status secara langsung.
+Semua respons memakai `meta.source = "mock"`.
+
+| Variabel | Bawaan | Arti |
+|---|---|---|
+| `MOCK_MODE` | `false` | Nyalakan generator |
+| `MOCK_TICK_SECONDS` | `5` | Interval generator (2–60 detik) |
+| `MOCK_TIME_SCALE` | `60` | Percepatan waktu domain (masa berlaku undangan, eskalasi, batas waktu permintaan mock) |
+| `MOCK_SEED` | acak | Isi untuk hasil yang dapat diulang; seed selalu dicatat di log saat start |
+| `MOCK_ADMIN_API_KEY` | kosong | Kunci untuk `/_mock/*` (tanpa kunci, endpoint ini selalu menolak) |
+| `MOCK_DONORS` | `60` | Jumlah pendonor palsu di Bandung |
+| `MOCK_DONOR_RECOVERY_MINUTES` | `10` | Setelah sekian menit, pendonor palsu boleh mendonor lagi |
+| `MOCK_MAX_ACTIVE_REQUESTS` | `8` | Batas permintaan mock aktif bersamaan |
+
+Aktor palsu memakai ID mulai 900000 sehingga tidak bentrok dengan akun asli: pemohon
+`900001`–`900005`, petugas `900100`, pendonor mulai `900201`, tersebar acak di Bandung
+(lat −6,98 s.d. −6,84, lon 107,54 s.d. 107,72).
+
+Setiap tick menjalankan 1–3 aksi acak:
+
+| Aksi | Bobot | Terlihat di |
+|---|---|---|
+| Permintaan baru (separuh dari petugas, langsung terverifikasi) | 25% | `request.created`, `request.verified`, `match.started`, `invitation.issued` |
+| Petugas memverifikasi permintaan keluarga pasien (90% disetujui) | 15% | `request.verified` / `request.rejected` |
+| Pendonor palsu merespons undangan (70% menerima) | 25% | `invitation.accepted` / `invitation.declined` |
+| Petugas mencatat kedatangan (85% donasi, 10% ditunda, 5% tidak hadir) | 15% | `donation.recorded`, `request.fulfilled`, `donor.deferred` |
+| Stok berubah (terpakai atau terisi) | 10% | `stock.updated`, `stock.low`, `/blood-stock` |
+| Slot kegiatan dipesan atau dibatalkan; kegiatan baru dibuat bila kurang dari 2 | 10% | `event.slots_changed`, `slots_free` di `/donation-events` |
+
+Setelah aksi, job kedaluwarsa dan eskalasi ikut dijalankan. Bila sebuah tick tidak mengubah
+data, satu perubahan stok dipaksa, sehingga `meta.seq` selalu naik di setiap tick.
+
+Skenario demo (hanya saat `MOCK_MODE=true`; selain itu 404):
+
+```bash
+curl -X POST $BASE/_mock/scenario -H "X-API-Key: <MOCK_ADMIN_API_KEY>" \
+  -H 'Content-Type: application/json' -d '{"name":"emergency_request","lat":-6.89,"lon":107.61}'
+curl $BASE/_mock/state -H "X-API-Key: <MOCK_ADMIN_API_KEY>"     # seed, jumlah tick, aksi terakhir
+```
+
+| Skenario | Efek |
+|---|---|
+| `emergency_request` | Permintaan darurat O+ 3 kantong di fasilitas terdekat dari `lat`/`lon`; undangan langsung terbit |
+| `stock_low` | Stok terbanyak diturunkan ke level kritis; terbit `stock.low` dan notifikasi |
+| `event_full` | Kegiatan terdekat dipenuhi reservasi pendonor palsu |
+| `mass_arrival` | Semua undangan pendonor palsu yang diterima dicatat sebagai donasi |
+| `reset` | Membatalkan semua permintaan mock aktif dan mengembalikan stok uji |
+
+Core tidak memanggil layanan kelompok lain, sehingga skenario `upstream_down`/`recover` dan
+`MOCK_UPSTREAM_*` diterapkan di layanan integrasi (Tugas 3).
 
 ## Deploy di STB
 

@@ -1536,6 +1536,66 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /_mock/scenario:
+    post:
+      tags:
+      - mock
+      summary: Picu skenario demo (hanya MOCK_MODE=true, X-API-Key admin mock)
+      operationId: scenario__mock_scenario_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScenarioIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /_mock/state:
+    get:
+      tags:
+      - mock
+      summary: Status generator mock (hanya MOCK_MODE=true, X-API-Key admin mock)
+      operationId: mock_state__mock_state_get
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /health:
     get:
       tags:
@@ -1829,6 +1889,31 @@ components:
       required:
       - slot_start
       title: ReservationIn
+    ScenarioIn:
+      properties:
+        name:
+          type: string
+          enum:
+          - emergency_request
+          - stock_low
+          - event_full
+          - mass_arrival
+          - reset
+          title: Name
+        lat:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Lat
+        lon:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Lon
+      type: object
+      required:
+      - name
+      title: ScenarioIn
     ScreeningIn:
       properties:
         feeling_healthy:
