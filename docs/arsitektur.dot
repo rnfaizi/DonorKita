@@ -1,0 +1,36 @@
+// Diagram arsitektur DonorKita. Render: dot -Tpng -Gdpi=200 docs/arsitektur.dot -o docs/arsitektur.png
+digraph A {
+  rankdir=LR;
+  graph [fontname="Liberation Sans", bgcolor="white", pad=0.3, nodesep=0.35, ranksep=0.55, newrank=true];
+  node  [fontname="Liberation Sans", shape=box, style="rounded,filled", fontsize=11, margin="0.16,0.08", penwidth=0];
+  edge  [fontname="Liberation Sans", fontsize=9, color="#4B5563", penwidth=1.1, arrowsize=0.7];
+
+  subgraph cluster_clients {
+    label=<<B>Klien</B>>; fontsize=11; style="rounded,dashed"; color="#9AA0A6"; fontcolor="#1F2A44";
+    APP [label=<<B>Aplikasi mobile</B><BR/><FONT POINT-SIZE="9">DonorKita (Expo)</FONT><BR/><FONT POINT-SIZE="9">JWT Bearer</FONT>>, fillcolor="#F3F4F6"];
+    KS  [label=<<B>KotaSiaga</B><BR/><FONT POINT-SIZE="9">Smart City · X-API-Key</FONT>>, fillcolor="#F3F4F6"];
+    JL  [label=<<B>JelajahLokal</B><BR/><FONT POINT-SIZE="9">Tourism · X-API-Key</FONT>>, fillcolor="#F3F4F6"];
+  }
+
+  CF [label=<<B>Cloudflare</B><BR/><FONT POINT-SIZE="9">https://donorkita.stei.site</FONT>>, fillcolor="#FDE7D1"];
+
+  subgraph cluster_stb {
+    label=<<B>STB Armbian (arm64, RAM 2 GB) · Docker Compose</B>>; fontsize=11; style="rounded"; color="#1F2A44"; fontcolor="#1F2A44"; penwidth=1.4;
+    T  [label=<<B>tunnel</B><BR/><FONT POINT-SIZE="9">cloudflared · 64 MB</FONT>>, fillcolor="#6B7280", fontcolor="white"];
+    G  [label=<<B>gateway</B><BR/><FONT POINT-SIZE="9">Nginx 1.28 · 64 MB</FONT><BR/><FONT POINT-SIZE="9">rate limit · error JSON</FONT>>, fillcolor="#1F3A73", fontcolor="white"];
+    AU [label=<<B>auth</B><BR/><FONT POINT-SIZE="9">FastAPI · 128 MB</FONT><BR/><FONT POINT-SIZE="9">akun · JWT · API key</FONT>>, fillcolor="#1F3A73", fontcolor="white"];
+    CO [label=<<B>core</B><BR/><FONT POINT-SIZE="9">FastAPI · 256 MB</FONT><BR/><FONT POINT-SIZE="8">Permintaan Darah · Pencocokan</FONT><BR/><FONT POINT-SIZE="8">Pendonor &amp; Kelayakan · Kegiatan Donor</FONT><BR/><FONT POINT-SIZE="8">Stok Darah · Notifikasi · Lokasi</FONT><BR/><FONT POINT-SIZE="8">event bus · job · mock</FONT>>, fillcolor="#8B1E2D", fontcolor="white"];
+    DA [label=<<FONT POINT-SIZE="9">auth.db<BR/>(SQLite WAL)</FONT>>, shape=cylinder, style=filled, fillcolor="#EEEFF1"];
+    DC [label=<<FONT POINT-SIZE="9">core.db<BR/>(SQLite WAL)</FONT>>, shape=cylinder, style=filled, fillcolor="#EEEFF1"];
+  }
+
+  APP -> CF; KS -> CF; JL -> CF;
+  CF -> T [label="tunnel\nkeluar"];
+  T -> G [label="gateway:80"];
+  G -> AU [label="/api/auth/*"];
+  G -> CO [label="/api/*"];
+  CO -> AU [label="verify-key\n(internal)", style=dashed];
+  AU -> DA [arrowhead=none, style=dotted];
+  CO -> DC [arrowhead=none, style=dotted];
+  {rank=same; AU; CO}
+}

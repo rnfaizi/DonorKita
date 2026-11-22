@@ -7,10 +7,10 @@ Kelompok **donorkita** (Kelas K02, tema Health & Wellbeing): Reza Nashwan Faizi 
 - **Dokumentasi interaktif:** `https://donorkita.stei.site/api/docs`
 - **Dokumentasi auth:** `https://donorkita.stei.site/api/auth/docs`
 - **Kontrak OpenAPI:** `docs/openapi-core.yaml` dan `docs/openapi-auth.yaml` (diekspor dari kode)
+- **Repositori:** `https://github.com/rnfaizi/DonorKita`
 - **Kesepakatan klaster:** `AGENTS.md` (milik KotaSiaga, disalin utuh; jangan diedit di repo ini)
 
-> README ini masih berkembang. Bagian bertanda *(menyusul)* dilengkapi pada tahap berikutnya,
-> lalu diekspor menjadi `README.pdf` untuk pengumpulan Tugas 2.
+> Versi PDF untuk pengumpulan: `README.pdf`, dibuat dari file ini dengan `python tools/build_readme_pdf.py`.
 
 ## Status pengerjaan
 
@@ -21,18 +21,17 @@ Kelompok **donorkita** (Kelas K02, tema Health & Wellbeing): Reza Nashwan Faizi 
 | 3a | auth-service: akun, JWT + refresh token, API key kelompok lain, akun uji | selesai |
 | 3b | Docker Compose (core, auth, gateway, tunnel) dan gateway Nginx | selesai |
 | 3c | Mock mode (AGENTS.md bagian 7) | selesai |
-| 4 | Deploy STB dan Cloudflare Tunnel | panduan siap, menunggu eksekusi |
-| 5 | README.pdf, API Registry, API key untuk kelompok lain | belum |
+| 4 | Deploy STB dan Cloudflare Tunnel | berjalan di STB (mock aktif, tunnel tersambung); menunggu hostname publik dari asisten |
+| 5 | README.pdf, API Registry, API key untuk kelompok lain | API key dibuat; README.pdf tersedia; Registry menunggu hostname |
 
 ## Arsitektur deploy
 
-```
-Klien (aplikasi, kelompok lain)
-  -> Cloudflare Tunnel (https://donorkita.stei.site)  -> tunnel  (cloudflared)
-  -> gateway  (Nginx 1.28, :80; di STB dipetakan ke GATEWAY_PORT=8081)
-       /api/auth/*  -> auth  (FastAPI, SQLite auth.db)
-       /api/*       -> core  (FastAPI, SQLite core.db)
-```
+![Arsitektur DonorKita](docs/arsitektur.png)
+
+Klien (aplikasi mobile dengan JWT, kelompok lain dengan `X-API-Key`) masuk lewat Cloudflare ke
+`https://donorkita.stei.site`. Kontainer `tunnel` membuka koneksi keluar ke Cloudflare, jadi tidak ada
+port STB yang dibuka ke internet. Gateway Nginx meneruskan `/api/auth/*` ke `auth` dan `/api/*` ke
+`core`. Core memverifikasi API key ke auth lewat jaringan internal Docker.
 
 | Kontainer | Peran | Batas sumber daya |
 |---|---|---|
@@ -217,7 +216,7 @@ Error: `{"error": {"code", "message", "request_id"}}`; header `X-Request-ID` iku
 | 422 | `validation_error` |
 | 429 | `rate_limited` |
 | 503 | `upstream_unavailable` |
-| 500 | `internal_error` (lihat "Perubahan kontrak") |
+| 500 | `internal_error` (jaring pengaman untuk error tak terduga; diusulkan ke owner klaster) |
 
 ## Menjalankan dengan Docker
 
