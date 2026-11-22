@@ -1,0 +1,53 @@
+openapi: 3.1.0
+info:
+  title: DonorKita Core Service
+  description: '
+
+    Layanan inti pencocokan kebutuhan darah dengan pendonor sukarela. Semua path relatif
+
+    terhadap `/api` (base URL `https://donorkita.stei.site/api`).
+
+
+    **Autentikasi**
+
+    - Pengguna aplikasi: `Authorization: Bearer <JWT>` dari `POST /api/auth/login`.
+
+    - Kelompok lain (server ke server): header `X-API-Key`.
+
+
+    **Format respons**
+
+    - Sukses: `{"data": ..., "meta": {"seq", "updated_at", "source", "stale"}}`.
+
+    - Error: `{"error": {"code", "message", "request_id"}}`.
+
+    '
+  version: 0.1.0
+paths:
+  /health:
+    get:
+      tags:
+      - umum
+      summary: Cek layanan hidup (publik)
+      operationId: health_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Health Health Get
+servers:
+- url: https://donorkita.stei.site/api
+components:
+  securitySchemes:
+    BearerJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
