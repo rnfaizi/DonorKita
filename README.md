@@ -21,7 +21,7 @@ Kelompok **donorkita** (Kelas K02, tema Health & Wellbeing): Reza Nashwan Faizi 
 | 3a | auth-service: akun, JWT + refresh token, API key kelompok lain, akun uji | selesai |
 | 3b | Docker Compose (core, auth, gateway, tunnel) dan gateway Nginx | selesai |
 | 3c | Mock mode (AGENTS.md bagian 7) | belum |
-| 4 | Deploy STB dan Cloudflare Tunnel | belum |
+| 4 | Deploy STB dan Cloudflare Tunnel | panduan siap, menunggu eksekusi |
 | 5 | README.pdf, API Registry, API key untuk kelompok lain | belum |
 
 ## Arsitektur deploy
@@ -267,7 +267,90 @@ pribadi, dan reset umpan perubahan.
 
 ## Mock mode *(menyusul, Tahap 3)*
 
-## Deploy di STB *(menyusul, Tahap 4)*
+## Deploy di STB
+
+STB: Armbian (Debian 13, arm64, RAM 2 GB) dengan Docker dan Docker Compose v2. Proyek diletakkan di
+`/www/apps/donorkita`. Hanya kontainer microservice yang berjalan di STB.
+
+### 1. Ambil kode dan siapkan `.env`
+
+```bash
+free -h && df -h /                       # pastikan RAM dan disk cukup
+mkdir -p /www/apps && cd /www/apps
+git clone https://github.com/<username>/donorkita.git && cd donorkita
+cp .env.example .env
+sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -hex 32)|; \
+        s|^INTERNAL_TOKEN=.*|INTERNAL_TOKEN=$(openssl rand -hex 16)|; \
+        s|^SEED_API_KEY=.*|SEED_API_KEY=dk_$(openssl rand -hex 16)|" .env
+nano .env                                # isi ADMIN_PASSWORD dan DEMO_PASSWORD
+chmod 600 .env
+```
+
+### 2. Build dan jalankan (tanpa tunnel)
+
+```bash
+docker compose up -d --build             # build pertama di ARM beberapa menit
+docker compose ps                        # core, auth, gateway: healthy
+curl localhost:8081/api/health           # {"status":"ok"}
+docker stats --no-stream                 # cek memori tiap kontainer
+ufw allow 8081/tcp                       # opsional: akses dari laptop lewat LAN
+```
+
+### 3. Cloudflare Tunnel ke `https://donorkita.stei.site`
+
+1. Pastikan nama `donorkita` sudah dipesan di API Registry kelas.
+2. Login ke akun Cloudflare kelas (lihat slide brief), buka **Networks > Tunnels > Create a tunnel >
+   Cloudflared**, beri nama `k02-donorkita`.
+3. Pada langkah instal connector, salin **token saja** (string panjang setelah `--token` atau setelah
+   `service install`). Jangan jalankan perintah instal yang ditampilkan.
+4. Tab **Public Hostname > Add**: Subdomain `donorkita`, Domain `stei.site`, Path kosong,
+   Type `HTTP`, URL `gateway:80`. Simpan, lalu logout.
+5. Di STB:
+
+```bash
+nano .env                                # TUNNEL_TOKEN=<token>
+docker compose --profile tunnel up -d
+docker compose logs tunnel | tail -5     # "Registered tunnel connection"
+curl https://donorkita.stei.site/api/health
+```
+
+Aturan akun bersama: hanya ubah tunnel dan hostname milik sendiri, jangan ubah pengaturan lain,
+dan jangan menyimpan kredensial akun atau token di repositori.
+
+### 4. API key untuk kelompok lain
+
+```bash
+BASE=https://donorkita.stei.site/api
+ADMIN_TOKEN=$(curl -s -X POST $BASE/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"<ADMIN_EMAIL>","password":"<ADMIN_PASSWORD>"}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['access_token'])")
+curl -s -X POST $BASE/auth/api-keys -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"name":"KotaSiaga (Smart City)"}'
+curl -s -X POST $BASE/auth/api-keys -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"name":"JelajahLokal (Tourism)"}'
+```
+
+Nilai `key` hanya tampil sekali; kirim ke kelompok terkait lewat jalur pribadi.
+
+### Operasional
+
+```bash
+cd /www/apps/donorkita
+git pull && docker compose --profile tunnel up -d --build    # perbarui dari GitHub
+docker compose logs -f core                                  # log (ganti nama service)
+docker compose restart core                                  # restart satu service
+# Backup basis data (aman saat layanan berjalan)
+docker compose exec core python -c "import sqlite3; sqlite3.connect('/data/core.db').execute(\"VACUUM INTO '/data/backup-core.db'\")"
+docker compose cp core:/data/backup-core.db ./backup-core-$(date +%F).db
+```
+
+| Gejala | Penyebab dan solusi |
+|---|---|
+| Build gagal mengunduh paket | DNS STB; pastikan `/etc/netplan/30-eth0-static.yaml` memakai `1.1.1.1`, `8.8.8.8` |
+| `port is already allocated` | Port 8081 terpakai; ubah `GATEWAY_PORT` di `.env` |
+| Tunnel *Inactive/Down* | Token salah atau STB offline; cek `.env` dan `docker compose logs tunnel` |
+| Error 502 di domain | URL hostname bukan `gateway:80`, atau gateway belum healthy (`docker compose ps`) |
+| Kontainer berhenti karena memori | Matikan layanan lain yang tidak dipakai (`docker compose down` di folder proyek lain) |
 
 ## Perubahan kontrak yang perlu disampaikan ke owner klaster
 
