@@ -1,29 +1,1541 @@
 openapi: 3.1.0
 info:
   title: DonorKita Core Service
-  description: '
-
-    Layanan inti pencocokan kebutuhan darah dengan pendonor sukarela. Semua path relatif
-
-    terhadap `/api` (base URL `https://donorkita.stei.site/api`).
-
-
-    **Autentikasi**
-
-    - Pengguna aplikasi: `Authorization: Bearer <JWT>` dari `POST /api/auth/login`.
-
-    - Kelompok lain (server ke server): header `X-API-Key`.
-
-
-    **Format respons**
-
-    - Sukses: `{"data": ..., "meta": {"seq", "updated_at", "source", "stale"}}`.
-
-    - Error: `{"error": {"code", "message", "request_id"}}`.
-
-    '
-  version: 0.1.0
+  description: "\nLayanan inti pencocokan kebutuhan darah dengan pendonor sukarela.\
+    \ Semua path relatif\nterhadap `/api` (base URL `https://donorkita.stei.site/api`).\n\
+    \n**Autentikasi**\n- Pengguna aplikasi: `Authorization: Bearer <JWT>` dari `POST\
+    \ /api/auth/login`.\n  Peran: `donor`, `requester`, `staff`, `admin`.\n- Kelompok\
+    \ lain (server ke server): header `X-API-Key`. Endpoint baca publik\n  (`/donation-events`,\
+    \ `/blood-stock`, `/requests/summary`, `/facilities`, `/changes`)\n  menerima\
+    \ X-API-Key atau JWT.\n\n**Format respons**\n- Sukses: `{\"data\": ..., \"meta\"\
+    : {\"seq\", \"updated_at\", \"source\", \"stale\"}}`.\n- Error: `{\"error\": {\"\
+    code\", \"message\", \"request_id\"}}`.\n"
+  version: 0.2.0
 paths:
+  /requests:
+    post:
+      tags:
+      - permintaan-darah
+      summary: Ajukan permintaan darah
+      operationId: create_requests_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - permintaan-darah
+      summary: Semua permintaan (petugas)
+      operationId: list_all_requests_get
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - submitted
+            - verified
+            - searching
+            - fulfilled
+            - expired
+            - cancelled
+            - rejected
+            type: string
+          - type: 'null'
+          title: Status
+      - name: facility_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Facility Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          description: Jumlah data per halaman (maks 200)
+          default: 50
+          title: Limit
+        description: Jumlah data per halaman (maks 200)
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /requests/summary:
+    get:
+      tags:
+      - permintaan-darah
+      summary: Ringkasan permintaan aktif per golongan (tanpa data pribadi)
+      operationId: summary_requests_summary_get
+      parameters:
+      - name: bbox
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: min_lon,min_lat,max_lon,max_lat
+          title: Bbox
+        description: min_lon,min_lat,max_lon,max_lat
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /requests/mine:
+    get:
+      tags:
+      - permintaan-darah
+      summary: Permintaan yang saya ajukan
+      operationId: mine_requests_mine_get
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - submitted
+            - verified
+            - searching
+            - fulfilled
+            - expired
+            - cancelled
+            - rejected
+            type: string
+          - type: 'null'
+          title: Status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          description: Jumlah data per halaman (maks 200)
+          default: 50
+          title: Limit
+        description: Jumlah data per halaman (maks 200)
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /requests/{request_id}:
+    get:
+      tags:
+      - permintaan-darah
+      summary: Detail permintaan (pemohon atau petugas)
+      operationId: get_one_requests__request_id__get
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /requests/{request_id}/verify:
+    patch:
+      tags:
+      - permintaan-darah
+      summary: Verifikasi atau tolak permintaan (petugas)
+      operationId: verify_requests__request_id__verify_patch
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /requests/{request_id}/cancel:
+    patch:
+      tags:
+      - permintaan-darah
+      summary: Batalkan permintaan (pemohon atau petugas)
+      operationId: cancel_requests__request_id__cancel_patch
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /invitations:
+    get:
+      tags:
+      - pencocokan
+      summary: Undangan donor untuk saya
+      operationId: my_invitations_invitations_get
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          description: Jumlah data per halaman (maks 200)
+          default: 50
+          title: Limit
+        description: Jumlah data per halaman (maks 200)
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /invitations/{invitation_id}:
+    get:
+      tags:
+      - pencocokan
+      summary: Detail undangan
+      operationId: get_invitation_invitations__invitation_id__get
+      parameters:
+      - name: invitation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Invitation Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /invitations/{invitation_id}/accept:
+    post:
+      tags:
+      - pencocokan
+      summary: Terima undangan; mendapat kode kedatangan
+      operationId: accept_invitations__invitation_id__accept_post
+      parameters:
+      - name: invitation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Invitation Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /invitations/{invitation_id}/decline:
+    post:
+      tags:
+      - pencocokan
+      summary: Tolak undangan
+      operationId: decline_invitations__invitation_id__decline_post
+      parameters:
+      - name: invitation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Invitation Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /arrivals:
+    post:
+      tags:
+      - pencocokan
+      summary: Catat kedatangan pendonor dengan kode undangan (petugas)
+      operationId: record_arrival_arrivals_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArrivalIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /requests/{request_id}/progress:
+    get:
+      tags:
+      - pencocokan
+      summary: Progres pencarian pendonor (pemohon atau petugas)
+      operationId: progress_requests__request_id__progress_get
+      parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Request Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /donors/me:
+    get:
+      tags:
+      - pendonor
+      summary: Profil pendonor saya beserta status kelayakan
+      operationId: get_me_donors_me_get
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    put:
+      tags:
+      - pendonor
+      summary: Buat atau perbarui profil pendonor
+      operationId: put_me_donors_me_put
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DonorProfileIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /donors/me/screening:
+    post:
+      tags:
+      - pendonor
+      summary: Kirim kuesioner pra-skrining
+      operationId: screening_donors_me_screening_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScreeningIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /donors/me/eligibility:
+    get:
+      tags:
+      - pendonor
+      summary: Status kelayakan saya
+      operationId: my_eligibility_donors_me_eligibility_get
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /donors/me/history:
+    get:
+      tags:
+      - pendonor
+      summary: Riwayat donasi saya
+      operationId: my_history_donors_me_history_get
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /donation-events:
+    get:
+      tags:
+      - kegiatan-donor
+      summary: Kegiatan donor terdekat (untuk aplikasi dan kelompok lain)
+      operationId: list_events_donation_events_get
+      parameters:
+      - name: from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          description: 'Awal rentang (default: sekarang)'
+          title: From
+        description: 'Awal rentang (default: sekarang)'
+      - name: to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          description: Akhir rentang
+          title: To
+        description: Akhir rentang
+      - name: lat
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            maximum: 90
+            minimum: -90
+          - type: 'null'
+          title: Lat
+      - name: lon
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            maximum: 180
+            minimum: -180
+          - type: 'null'
+          title: Lon
+      - name: radius_m
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 100000
+            minimum: 100
+          - type: 'null'
+          description: Radius dalam meter; perlu lat dan lon
+          title: Radius M
+        description: Radius dalam meter; perlu lat dan lon
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          description: Jumlah data per halaman (maks 200)
+          default: 50
+          title: Limit
+        description: Jumlah data per halaman (maks 200)
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - kegiatan-donor
+      summary: Jadwalkan kegiatan donor (petugas)
+      operationId: create_donation_events_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /donation-events/{event_id}:
+    get:
+      tags:
+      - kegiatan-donor
+      summary: Detail kegiatan donor beserta slot
+      operationId: get_event_donation_events__event_id__get
+      parameters:
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Event Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /donation-events/{event_id}/cancel:
+    patch:
+      tags:
+      - kegiatan-donor
+      summary: Batalkan kegiatan donor (petugas)
+      operationId: cancel_event_donation_events__event_id__cancel_patch
+      parameters:
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Event Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /donation-events/{event_id}/reservations:
+    post:
+      tags:
+      - kegiatan-donor
+      summary: Pesan slot kegiatan (pendonor)
+      operationId: reserve_donation_events__event_id__reservations_post
+      parameters:
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Event Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservationIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      tags:
+      - kegiatan-donor
+      summary: Daftar reservasi kegiatan (petugas)
+      operationId: event_reservations_donation_events__event_id__reservations_get
+      parameters:
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Event Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /reservations/mine:
+    get:
+      tags:
+      - kegiatan-donor
+      summary: Reservasi saya
+      operationId: my_reservations_reservations_mine_get
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /reservations/{reservation_id}:
+    delete:
+      tags:
+      - kegiatan-donor
+      summary: Batalkan reservasi saya
+      operationId: cancel_reservation_reservations__reservation_id__delete
+      parameters:
+      - name: reservation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Reservation Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /reservations/{reservation_id}/outcome:
+    post:
+      tags:
+      - kegiatan-donor
+      summary: Catat hasil kedatangan reservasi (petugas)
+      operationId: reservation_outcome_reservations__reservation_id__outcome_post
+      parameters:
+      - name: reservation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Reservation Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OutcomeIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /blood-stock:
+    get:
+      tags:
+      - stok-darah
+      summary: Stok darah per fasilitas (untuk aplikasi dan kelompok lain)
+      operationId: list_stock_blood_stock_get
+      parameters:
+      - name: facility_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Facility Id
+      - name: level
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - low
+            - critical
+            type: string
+          - type: 'null'
+          description: Hanya item dengan level ini atau lebih buruk
+          title: Level
+        description: Hanya item dengan level ini atau lebih buruk
+      - name: lat
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            maximum: 90
+            minimum: -90
+          - type: 'null'
+          title: Lat
+      - name: lon
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            maximum: 180
+            minimum: -180
+          - type: 'null'
+          title: Lon
+      - name: radius_m
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 100000
+            minimum: 100
+          - type: 'null'
+          description: Radius dalam meter; perlu lat dan lon
+          title: Radius M
+        description: Radius dalam meter; perlu lat dan lon
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          description: Jumlah data per halaman (maks 200)
+          default: 50
+          title: Limit
+        description: Jumlah data per halaman (maks 200)
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /blood-stock/{facility_id}:
+    put:
+      tags:
+      - stok-darah
+      summary: Perbarui stok darah fasilitas (petugas)
+      operationId: update_stock_blood_stock__facility_id__put
+      parameters:
+      - name: facility_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Facility Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StockUpdateIn'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /facilities:
+    get:
+      tags:
+      - lokasi
+      summary: Daftar fasilitas (UDD, rumah sakit, BDRS)
+      operationId: list_facilities_facilities_get
+      parameters:
+      - name: kind
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - udd
+            - hospital
+            - bdrs
+            type: string
+          - type: 'null'
+          title: Kind
+      - name: lat
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            maximum: 90
+            minimum: -90
+          - type: 'null'
+          title: Lat
+      - name: lon
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: number
+            maximum: 180
+            minimum: -180
+          - type: 'null'
+          title: Lon
+      - name: radius_m
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 100000
+            minimum: 100
+          - type: 'null'
+          description: Radius dalam meter; perlu lat dan lon
+          title: Radius M
+        description: Radius dalam meter; perlu lat dan lon
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          description: Jumlah data per halaman (maks 200)
+          default: 50
+          title: Limit
+        description: Jumlah data per halaman (maks 200)
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - lokasi
+      summary: Tambah fasilitas (admin)
+      operationId: create_facilities_post
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FacilityIn'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /facilities/{facility_id}:
+    get:
+      tags:
+      - lokasi
+      summary: Detail fasilitas
+      operationId: get_one_facilities__facility_id__get
+      parameters:
+      - name: facility_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Facility Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /notifications:
+    get:
+      tags:
+      - notifikasi
+      summary: Notifikasi saya
+      operationId: my_notifications_notifications_get
+      parameters:
+      - name: unread
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Unread
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          description: Jumlah data per halaman (maks 200)
+          default: 50
+          title: Limit
+        description: Jumlah data per halaman (maks 200)
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /notifications/{notification_id}/read:
+    post:
+      tags:
+      - notifikasi
+      summary: Tandai notifikasi sudah dibaca
+      operationId: mark_read_notifications__notification_id__read_post
+      parameters:
+      - name: notification_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Notification Id
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /changes:
+    get:
+      tags:
+      - umum
+      summary: Umpan perubahan sejak seq tertentu
+      operationId: changes_changes_get
+      parameters:
+      - name: since
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Since
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /health:
     get:
       tags:
@@ -39,9 +1551,406 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Health Health Get
-servers:
-- url: https://donorkita.stei.site/api
 components:
+  schemas:
+    ArrivalIn:
+      properties:
+        code:
+          type: string
+          maxLength: 6
+          minLength: 6
+          title: Code
+          description: Kode kedatangan yang ditunjukkan pendonor
+        outcome:
+          type: string
+          enum:
+          - donated
+          - deferred
+          - no_show
+          title: Outcome
+      type: object
+      required:
+      - code
+      - outcome
+      title: ArrivalIn
+    CancelIn:
+      properties:
+        reason:
+          type: string
+          maxLength: 200
+          minLength: 3
+          title: Reason
+      type: object
+      required:
+      - reason
+      title: CancelIn
+    DonorProfileIn:
+      properties:
+        display_name:
+          type: string
+          maxLength: 80
+          minLength: 2
+          title: Display Name
+        blood_type:
+          type: string
+          enum:
+          - a
+          - b
+          - ab
+          - o
+          title: Blood Type
+        rhesus:
+          type: string
+          enum:
+          - positive
+          - negative
+          title: Rhesus
+        birth_date:
+          type: string
+          format: date
+          title: Birth Date
+        weight_kg:
+          type: number
+          maximum: 250.0
+          minimum: 30.0
+          title: Weight Kg
+        lat:
+          type: number
+          maximum: 90.0
+          minimum: -90.0
+          title: Lat
+          description: Perkiraan lokasi domisili
+        lon:
+          type: number
+          maximum: 180.0
+          minimum: -180.0
+          title: Lon
+        available:
+          type: boolean
+          title: Available
+          description: Bersedia menerima undangan donor
+          default: true
+      type: object
+      required:
+      - display_name
+      - blood_type
+      - rhesus
+      - birth_date
+      - weight_kg
+      - lat
+      - lon
+      title: DonorProfileIn
+    EventIn:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 3
+          title: Name
+        organizer:
+          type: string
+          maxLength: 120
+          minLength: 2
+          title: Organizer
+        facility_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Facility Id
+          description: Opsional; koordinat diambil dari fasilitas
+        address:
+          type: string
+          maxLength: 200
+          title: Address
+          default: ''
+        lat:
+          anyOf:
+          - type: number
+            maximum: 90.0
+            minimum: -90.0
+          - type: 'null'
+          title: Lat
+        lon:
+          anyOf:
+          - type: number
+            maximum: 180.0
+            minimum: -180.0
+          - type: 'null'
+          title: Lon
+        opens_at:
+          type: string
+          format: date-time
+          title: Opens At
+        closes_at:
+          type: string
+          format: date-time
+          title: Closes At
+        capacity_per_hour:
+          type: integer
+          maximum: 100.0
+          minimum: 1.0
+          title: Capacity Per Hour
+      type: object
+      required:
+      - name
+      - organizer
+      - opens_at
+      - closes_at
+      - capacity_per_hour
+      title: EventIn
+    FacilityIn:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 3
+          title: Name
+        kind:
+          type: string
+          enum:
+          - udd
+          - hospital
+          - bdrs
+          title: Kind
+        address:
+          type: string
+          maxLength: 200
+          title: Address
+          default: ''
+        lat:
+          type: number
+          maximum: 90.0
+          minimum: -90.0
+          title: Lat
+        lon:
+          type: number
+          maximum: 180.0
+          minimum: -180.0
+          title: Lon
+      type: object
+      required:
+      - name
+      - kind
+      - lat
+      - lon
+      title: FacilityIn
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    OutcomeIn:
+      properties:
+        outcome:
+          type: string
+          enum:
+          - donated
+          - deferred
+          - no_show
+          title: Outcome
+      type: object
+      required:
+      - outcome
+      title: OutcomeIn
+    RequestIn:
+      properties:
+        facility_id:
+          type: string
+          title: Facility Id
+          description: ID fasilitas tujuan, mis. fac_1
+        patient_ref:
+          type: string
+          maxLength: 40
+          minLength: 3
+          title: Patient Ref
+          description: Nomor formulir permintaan darah RS
+        blood_type:
+          type: string
+          enum:
+          - a
+          - b
+          - ab
+          - o
+          title: Blood Type
+        rhesus:
+          type: string
+          enum:
+          - positive
+          - negative
+          title: Rhesus
+        component:
+          type: string
+          enum:
+          - whole_blood
+          - prc
+          - platelets
+          - plasma
+          title: Component
+        units:
+          type: integer
+          maximum: 10.0
+          minimum: 1.0
+          title: Units
+          description: Jumlah kantong
+        urgency:
+          type: string
+          enum:
+          - normal
+          - urgent
+          - emergency
+          title: Urgency
+          default: normal
+        needed_by:
+          type: string
+          format: date-time
+          title: Needed By
+          description: Batas waktu, ISO 8601 dengan zona waktu
+      type: object
+      required:
+      - facility_id
+      - patient_ref
+      - blood_type
+      - rhesus
+      - component
+      - units
+      - needed_by
+      title: RequestIn
+    ReservationIn:
+      properties:
+        slot_start:
+          type: string
+          format: date-time
+          title: Slot Start
+      type: object
+      required:
+      - slot_start
+      title: ReservationIn
+    ScreeningIn:
+      properties:
+        feeling_healthy:
+          type: boolean
+          title: Feeling Healthy
+        fever_last_2_weeks:
+          type: boolean
+          title: Fever Last 2 Weeks
+        antibiotics_last_week:
+          type: boolean
+          title: Antibiotics Last Week
+        tattoo_or_piercing_last_6_months:
+          type: boolean
+          title: Tattoo Or Piercing Last 6 Months
+        pregnant_or_breastfeeding:
+          type: boolean
+          title: Pregnant Or Breastfeeding
+        transfusion_last_year:
+          type: boolean
+          title: Transfusion Last Year
+      type: object
+      required:
+      - feeling_healthy
+      - fever_last_2_weeks
+      - antibiotics_last_week
+      - tattoo_or_piercing_last_6_months
+      - pregnant_or_breastfeeding
+      - transfusion_last_year
+      title: ScreeningIn
+    StockItemIn:
+      properties:
+        blood_type:
+          type: string
+          enum:
+          - a
+          - b
+          - ab
+          - o
+          title: Blood Type
+        rhesus:
+          type: string
+          enum:
+          - positive
+          - negative
+          title: Rhesus
+        component:
+          type: string
+          enum:
+          - whole_blood
+          - prc
+          - platelets
+          - plasma
+          title: Component
+        units:
+          type: integer
+          maximum: 100000.0
+          minimum: 0.0
+          title: Units
+      type: object
+      required:
+      - blood_type
+      - rhesus
+      - component
+      - units
+      title: StockItemIn
+    StockUpdateIn:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/StockItemIn'
+          type: array
+          maxItems: 64
+          minItems: 1
+          title: Items
+      type: object
+      required:
+      - items
+      title: StockUpdateIn
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
+    VerifyIn:
+      properties:
+        decision:
+          type: string
+          enum:
+          - approve
+          - reject
+          title: Decision
+        reason:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Reason
+      type: object
+      required:
+      - decision
+      title: VerifyIn
   securitySchemes:
     BearerJWT:
       type: http
@@ -51,3 +1960,5 @@ components:
       type: apiKey
       in: header
       name: X-API-Key
+servers:
+- url: https://donorkita.stei.site/api

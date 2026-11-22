@@ -8,46 +8,131 @@ Kelompok **donorkita** (Kelas K02, tema Health & Wellbeing): Reza Nashwan Faizi 
 - **Kontrak OpenAPI:** `docs/openapi-core.yaml` (diekspor dari kode)
 - **Kesepakatan klaster:** `AGENTS.md` (milik KotaSiaga, disalin utuh; jangan diedit di repo ini)
 
-> README ini masih kerangka. Bagian yang bertanda *(menyusul)* dilengkapi pada tahap berikutnya,
+> README ini masih berkembang. Bagian bertanda *(menyusul)* dilengkapi pada tahap berikutnya,
 > lalu diekspor menjadi `README.pdf` untuk pengumpulan Tugas 2.
 
 ## Status pengerjaan
 
 | Tahap | Isi | Status |
 |---|---|---|
-| 1 | Kerangka repo: konfigurasi, SQLite WAL, `meta.seq`, umpan perubahan, event bus, envelope sukses/error, `/health`, Dockerfile, ekspor OpenAPI | selesai |
-| 2 | Aturan domain dan modul bounded context | belum |
-| 3 | auth-service, mock mode, pengujian, kontrak lengkap | belum |
+| 1 | Kerangka: konfigurasi, SQLite WAL, `meta.seq`, umpan perubahan, event bus, envelope, `/health`, Dockerfile | selesai |
+| 2 | Aturan domain dan modul bounded context, API publik dan API aplikasi, job latar belakang, data uji | selesai |
+| 3 | auth-service (login, JWT, API key), mock mode, kontrak lengkap | belum |
 | 4 | Docker Compose, gateway Nginx, Cloudflare Tunnel, deploy STB | belum |
 | 5 | README.pdf, API Registry, API key untuk kelompok lain | belum |
 
-## Struktur
+## Arsitektur kode
 
-```
-core-service/app/
-  main.py        aplikasi FastAPI, pendaftaran router
-  config.py      semua konfigurasi dari environment
-  db.py          koneksi SQLite (WAL) dan pendaftaran skema per konteks
-  meta.py        meta.seq dan umpan perubahan (500 terakhir)
-  events.py      domain event sinkron; setiap publish menaikkan seq
-  common.py      envelope sukses {data, meta}
-  errors.py      envelope error {error: {code, message, request_id}}
-  domain/        aturan domain murni tanpa database (Tahap 2)
-  modules/       satu file per bounded context (Tahap 2)
-  adapters/      pemanggilan sumber luar dengan timeout, retry, cache (Tahap 2)
-core-service/tests/   pengujian pytest
-tools/export_openapi.py
-docs/openapi-core.yaml
-```
+Bounded context dari makalah DDD berjalan sebagai modul dalam satu `core-service`, masing-masing
+dengan tabelnya sendiri. Modul tidak membaca tabel modul lain; mereka berkomunikasi lewat domain
+event sinkron (`app/events.py`, pemetaan di `app/handlers.py`) atau antarmuka kueri yang jelas.
+
+| Bounded context (makalah) | Jenis | Modul | Event yang diterbitkan |
+|---|---|---|---|
+| Permintaan Darah | core | `modules/requests.py` | PermintaanDiajukan, PermintaanTerverifikasi, PermintaanDitolak, PermintaanTerpenuhi, PermintaanKedaluwarsa, PermintaanDibatalkan |
+| Pencocokan | core | `modules/matching.py` + `domain/compatibility.py`, `domain/scoring.py` | SesiPencocokanDimulai, UndanganDiterbitkan, UndanganDiterima, UndanganDitolak, SesiDiperluas, DonasiTercatat, PendonorDitunda |
+| Pendonor & Kelayakan | supporting | `modules/donors.py` + `domain/eligibility.py` | ProfilPendonorDiperbarui, PraSkriningDikirim |
+| Kegiatan Donor | supporting | `modules/drives.py` | KegiatanDonorDibuat, KegiatanDonorDibatalkan, SlotKegiatanBerubah, DonasiTercatat |
+| Stok Darah | supporting | `modules/stock.py` | StokDiperbarui, StokMenipis |
+| Notifikasi | generic | `modules/notifications.py` | tidak ada (conformist terhadap event lain) |
+| Lokasi | generic | `modules/locations.py` | FasilitasDitambahkan |
+| Identitas & Akses | generic | `security.py` (core), auth-service *(Tahap 3)* | tidak ada |
+
+Alur utama:
+
+1. Pemohon membuat permintaan (`submitted`). Permintaan dari petugas langsung terverifikasi.
+2. Petugas memverifikasi nomor formulir RS, lalu terbit `PermintaanTerverifikasi`.
+3. Pencocokan membuka sesi pada radius 5 km, mengambil kandidat layak dari Pendonor & Kelayakan,
+   mengurutkannya dengan skor prioritas, lalu mengundang sejumlah `sisa kantong × faktor urgensi`
+   (normal 2, urgent 3, emergency 4). Status permintaan menjadi `searching`.
+4. Pendonor menerima undangan dan mendapat kode kedatangan 6 karakter.
+5. Petugas mencatat kedatangan dengan kode (`donated`, `deferred`, `no_show`). `DonasiTercatat`
+   menambah kantong terpenuhi, memperbarui riwayat dan masa jeda pendonor, dan mengirim notifikasi.
+6. Bila pendonor yang bersedia belum cukup, job latar belakang memperluas radius
+   (5 → 10 → 20 km) setelah 60/30/15 menit (normal/urgent/emergency). Permintaan yang melewati
+   `needed_by` menjadi `expired`.
+
+Aturan domain (semua angka dapat disetel lewat `.env`):
+
+- **Kompatibilitas:** PRC mengikuti aturan sel darah merah (O ke semua; AB menerima semua),
+  plasma kebalikannya, darah lengkap dan trombosit harus ABO identik. Penerima rhesus negatif
+  hanya dari negatif untuk komponen bersel darah merah. Ini hanya penyaringan kandidat; uji silang
+  tetap di UDD/BDRS.
+- **Kelayakan:** usia minimal 17 tahun (pendonor pertama > 60 atau ulang > 65 perlu pertimbangan
+  dokter), berat minimal 45 kg, jeda donor 60 hari, maksimal 5 kali per 365 hari, tidak sedang
+  ditunda, dan pra-skrining dalam 30 hari terakhir tanpa jawaban berisiko.
+- **Skor prioritas:** 0,5 × kedekatan + 0,3 × keandalan (donasi+1)/(diundang+2)
+  + 0,1 × golongan identik + 0,1 × lama sejak layak.
+
+## Daftar endpoint
+
+Akses: `key/jwt` = header `X-API-Key` (kelompok lain) atau JWT pengguna; `jwt <peran>` = JWT dengan peran tersebut.
+
+### API publik untuk kelompok lain
+
+| Metode | Path | Akses | Isi |
+|---|---|---|---|
+| GET | `/health` | publik | `{"status":"ok"}` |
+| GET | `/donation-events?lat&lon&radius_m&from&to&limit&offset` | key/jwt | Kegiatan donor: `id, name, lat, lon, opens_at, closes_at, slots_total, slots_free`, plus `organizer, address, facility_id, needed_blood_types, distance_m` |
+| GET | `/donation-events/{id}` | key/jwt | Detail kegiatan beserta slot per jam |
+| GET | `/blood-stock?lat&lon&radius_m&facility_id&level` | key/jwt | Stok per fasilitas: `blood_type, rhesus, component, units, level` (`sufficient`, `low`, `critical`) |
+| GET | `/requests/summary?bbox` | key/jwt | Jumlah permintaan aktif per golongan, komponen, dan urgensi, tanpa data pribadi |
+| GET | `/facilities?lat&lon&radius_m&kind` | key/jwt | UDD, rumah sakit, BDRS |
+| GET | `/changes?since&limit` | key/jwt | Umpan perubahan (500 terakhir); `meta.reset=true` bila `since` terlalu lama |
+
+Tipe perubahan di `/changes`: `request.created`, `request.verified`, `request.rejected`, `request.fulfilled`,
+`request.expired`, `request.cancelled`, `match.started`, `match.escalated`, `invitation.issued`,
+`invitation.accepted`, `invitation.declined`, `invitation.no_show`, `donation.recorded`, `donor.deferred`,
+`donor.updated`, `event.created`, `event.cancelled`, `event.slots_changed`, `stock.updated`, `stock.low`,
+`facility.created`.
+
+### API aplikasi
+
+| Metode | Path | Akses | Fungsi |
+|---|---|---|---|
+| GET/PUT | `/donors/me` | jwt donor | Profil pendonor beserta status kelayakan |
+| POST | `/donors/me/screening` | jwt donor | Kuesioner pra-skrining |
+| GET | `/donors/me/eligibility`, `/donors/me/history` | jwt donor | Kelayakan, riwayat donasi |
+| POST | `/requests` | jwt requester/staff | Ajukan permintaan darah |
+| GET | `/requests/mine` | jwt | Permintaan saya |
+| GET | `/requests` | jwt staff | Semua permintaan (filter `status`, `facility_id`) |
+| GET | `/requests/{id}` | jwt pemilik/staff | Detail permintaan |
+| PATCH | `/requests/{id}/verify` | jwt staff | `approve` atau `reject` (alasan wajib) |
+| PATCH | `/requests/{id}/cancel` | jwt pemilik/staff | Batalkan permintaan |
+| GET | `/requests/{id}/progress` | jwt pemilik/staff | Radius, putaran, dan jumlah undangan per status |
+| GET | `/invitations`, `/invitations/{id}` | jwt donor | Undangan saya |
+| POST | `/invitations/{id}/accept`, `/invitations/{id}/decline` | jwt donor | Terima (mendapat kode) atau tolak |
+| POST | `/arrivals` | jwt staff | Catat kedatangan dengan kode: `donated`, `deferred`, `no_show` |
+| POST | `/donation-events` | jwt staff | Jadwalkan kegiatan donor |
+| PATCH | `/donation-events/{id}/cancel` | jwt staff | Batalkan kegiatan |
+| POST | `/donation-events/{id}/reservations` | jwt donor | Pesan slot (kelayakan diperiksa) |
+| GET | `/donation-events/{id}/reservations` | jwt staff | Daftar reservasi kegiatan |
+| GET | `/reservations/mine` | jwt donor | Reservasi saya |
+| DELETE | `/reservations/{id}` | jwt donor | Batalkan reservasi |
+| POST | `/reservations/{id}/outcome` | jwt staff | Catat hasil kedatangan reservasi |
+| PUT | `/blood-stock/{facility_id}` | jwt staff | Perbarui stok |
+| POST | `/facilities` | jwt admin | Tambah fasilitas |
+| GET | `/notifications`, POST `/notifications/{id}/read` | jwt | Notifikasi in-app |
+
+ID berupa string buram berawalan: `req_`, `inv_`, `evt_`, `res_`, `fac_`, `ntf_`.
 
 ## Menjalankan di laptop
 
 ```bash
 cd core-service
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
-CORE_DB_PATH=./dev.db uvicorn app.main:app --reload --root-path /api
-# buka http://127.0.0.1:8000/docs  dan  http://127.0.0.1:8000/health
+# Windows PowerShell: $env:CORE_DB_PATH="./dev.db"; $env:SEED_DEMO="true"; $env:STATIC_API_KEYS="dk_dev_key"
+CORE_DB_PATH=./dev.db SEED_DEMO=true STATIC_API_KEYS=dk_dev_key uvicorn app.main:app --reload --root-path /api
+# buka http://127.0.0.1:8000/docs
+curl -H "X-API-Key: dk_dev_key" http://127.0.0.1:8000/donation-events
+```
+
+Untuk mencoba endpoint ber-JWT sebelum auth-service ada (Tahap 3), buat token uji dengan
+`JWT_SECRET` yang sama, misalnya:
+
+```bash
+python -c "import jwt,time;print(jwt.encode({'sub':'10','role':'donor','name':'Uji','exp':int(time.time())+3600},'dev-only-secret-ganti-di-env-min-32-karakter',algorithm='HS256'))"
 ```
 
 ## Pengujian
@@ -56,11 +141,11 @@ CORE_DB_PATH=./dev.db uvicorn app.main:app --reload --root-path /api
 cd core-service && python -m pytest tests -q
 ```
 
-## Ekspor kontrak
-
-```bash
-python tools/export_openapi.py core > docs/openapi-core.yaml
-```
+52 pengujian: fondasi (envelope, error, seq, umpan perubahan), aturan domain (kompatibilitas,
+kelayakan, skor, geo), alur penuh permintaan sampai terpenuhi, eskalasi radius, kedaluwarsa,
+penundaan pendonor, verifikasi dan hak akses, validasi input, kontrak kegiatan donor untuk
+KotaSiaga (`TitikTujuan`), reservasi dan slot, level stok dan notifikasi, ringkasan tanpa data
+pribadi, dan reset umpan perubahan.
 
 ## Format respons
 
@@ -80,11 +165,20 @@ Error: `{"error": {"code", "message", "request_id"}}`; header `X-Request-ID` iku
 
 ## Perubahan kontrak yang perlu disampaikan ke owner klaster
 
-- Usulan kode `internal_error` (HTTP 500) sebagai jaring pengaman untuk error tak terduga; AGENTS.md bagian 3 belum mencantumkannya.
+- Usulan kode `internal_error` (HTTP 500) sebagai jaring pengaman; AGENTS.md bagian 3 belum mencantumkannya.
+- Path Health di AGENTS.md (sebelumnya TBD) kini: `/donation-events`, `/donation-events/{id}`, `/blood-stock`,
+  `/requests/summary`, `/facilities`, `/changes`. Tambahan dibanding Tabel 4 makalah: `/facilities` dan
+  field `needed_blood_types` pada kegiatan donor.
+- Base URL JelajahLokal yang sebenarnya: `https://chitatomigoreng.stei.site/api` (di AGENTS.md masih TBD).
+
+## Batasan saat ini
+
+- Petugas (`staff`) belum dibatasi per fasilitas; semua petugas dapat memverifikasi permintaan di fasilitas mana pun.
+- Ambang stok `low`/`critical` berlaku global, belum per fasilitas atau komponen.
+- Fasilitas diisi admin atau data uji; adapter OpenStreetMap (Overpass) belum dibuat.
+- Notifikasi hanya in-app (dipoll aplikasi); push notification ditangani di aplikasi/layanan integrasi.
 
 ## Cara mendapat akses *(menyusul, Tahap 3)*
-
-## Daftar endpoint *(menyusul, Tahap 2)*
 
 ## Mock mode *(menyusul, Tahap 3)*
 
