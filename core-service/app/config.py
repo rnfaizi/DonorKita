@@ -43,6 +43,7 @@ class Settings:
 
         # --- Data uji ---
         self.seed_demo = _bool("SEED_DEMO")
+        self.demo_donor_user_id = _int("DEMO_DONOR_USER_ID", 2)
 
         # --- Mock mode (AGENTS.md bagian 7) ---
         self.mock_mode = _bool("MOCK_MODE")

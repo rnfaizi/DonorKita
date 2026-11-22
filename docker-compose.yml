@@ -1,0 +1,74 @@
+# DonorKita di STB: hanya kontainer microservice (core, auth, gateway, tunnel).
+# Frontend, build aplikasi mobile, dan layanan integrasi TIDAK berjalan di STB.
+#
+#   cp .env.example .env            # isi rahasianya
+#   docker compose up -d --build    # core + auth + gateway (akses LAN di port GATEWAY_PORT)
+#   docker compose --profile tunnel up -d   # + Cloudflare Tunnel ke https://donorkita.stei.site
+#
+# Total batas memori: 256 + 128 + 64 + 64 = 512 MB (STB 2 GB dipakai bersama layanan lain).
+name: donorkita
+
+services:
+  core:
+    build: ./core-service
+    image: donorkita-core:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      CORE_DB_PATH: /data/core.db
+      AUTH_INTERNAL_URL: http://auth:8000
+    volumes:
+      - core-data:/data
+    mem_limit: 256m
+    cpus: 0.5
+    depends_on:
+      auth:
+        condition: service_healthy
+
+  auth:
+    build: ./auth-service
+    image: donorkita-auth:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      AUTH_DB_PATH: /data/auth.db
+    volumes:
+      - auth-data:/data
+    mem_limit: 128m
+    cpus: 0.25
+
+  gateway:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    ports:
+      # 8080 sudah dipakai gateway KatalogKu di STB, jadi bawaan DonorKita 8081.
+      - "${GATEWAY_PORT:-8081}:80"
+    volumes:
+      - ./gateway/nginx.conf:/etc/nginx/nginx.conf:ro
+    mem_limit: 64m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      core:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    mem_limit: 64m
+    cpus: 0.25
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+volumes:
+  core-data:
+  auth-data:

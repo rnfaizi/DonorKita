@@ -151,6 +151,17 @@ def user_ids_by_groups(conn, groups: Iterable[BloodGroup], limit: int = 50) -> L
     return [r["user_id"] for r in rows]
 
 
+def seed_profile(conn, user_id: int, name: str, blood_type: str, rhesus: str, birth_date: str,
+                 weight_kg: float, lat: float, lon: float) -> None:
+    """Untuk data uji dan generator mock: profil lengkap dengan pra-skrining bersih."""
+    now = clock.now_iso()
+    conn.execute("""
+        INSERT OR IGNORE INTO donors (user_id, display_name, blood_type, rhesus, birth_date, weight_kg, lat, lon,
+                                      available, screening_at, screening_flagged, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 0, ?, ?)
+    """, (user_id, name, blood_type, rhesus, birth_date, weight_kg, lat, lon, now, now, now))
+
+
 # ---------- reaksi atas event ----------
 
 def on_donation_recorded(conn, body: dict) -> None:

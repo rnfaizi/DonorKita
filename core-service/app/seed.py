@@ -5,7 +5,8 @@ Hanya mengisi bila tabel fasilitas masih kosong, jadi aman dijalankan berulang.
 from datetime import timedelta
 
 from . import clock
-from .modules import drives, locations, stock
+from .config import settings
+from .modules import donors, drives, locations, stock
 
 FACILITIES = [
     ("UDD Uji Kota Bandung", "udd", "Jl. Uji Aceh, Bandung", -6.9125, 107.6155),
@@ -34,4 +35,7 @@ def seed_demo(conn) -> bool:
         items.append(stock.StockItemIn(blood_type=bt, rhesus="positive", component="prc", units=units))
         items.append(stock.StockItemIn(blood_type=bt, rhesus="negative", component="prc", units=max(1, units // 8)))
     stock.apply_update(conn, udd, items, None)
+    # Profil untuk akun uji pendonor@demo.test (ID 2 di auth-service pada basis data baru)
+    donors.seed_profile(conn, settings.demo_donor_user_id, "Pendonor Uji", "o", "positive", "2000-01-15",
+                        62.0, -6.8930, 107.6100)
     return True

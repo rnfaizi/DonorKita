@@ -5,7 +5,8 @@ Kelompok **donorkita** (Kelas K02, tema Health & Wellbeing): Reza Nashwan Faizi 
 
 - **Base URL (rencana):** `https://donorkita.stei.site/api`
 - **Dokumentasi interaktif:** `https://donorkita.stei.site/api/docs`
-- **Kontrak OpenAPI:** `docs/openapi-core.yaml` (diekspor dari kode)
+- **Dokumentasi auth:** `https://donorkita.stei.site/api/auth/docs`
+- **Kontrak OpenAPI:** `docs/openapi-core.yaml` dan `docs/openapi-auth.yaml` (diekspor dari kode)
 - **Kesepakatan klaster:** `AGENTS.md` (milik KotaSiaga, disalin utuh; jangan diedit di repo ini)
 
 > README ini masih berkembang. Bagian bertanda *(menyusul)* dilengkapi pada tahap berikutnya,
@@ -17,9 +18,31 @@ Kelompok **donorkita** (Kelas K02, tema Health & Wellbeing): Reza Nashwan Faizi 
 |---|---|---|
 | 1 | Kerangka: konfigurasi, SQLite WAL, `meta.seq`, umpan perubahan, event bus, envelope, `/health`, Dockerfile | selesai |
 | 2 | Aturan domain dan modul bounded context, API publik dan API aplikasi, job latar belakang, data uji | selesai |
-| 3 | auth-service (login, JWT, API key), mock mode, kontrak lengkap | belum |
-| 4 | Docker Compose, gateway Nginx, Cloudflare Tunnel, deploy STB | belum |
+| 3a | auth-service: akun, JWT + refresh token, API key kelompok lain, akun uji | selesai |
+| 3b | Docker Compose (core, auth, gateway, tunnel) dan gateway Nginx | selesai |
+| 3c | Mock mode (AGENTS.md bagian 7) | belum |
+| 4 | Deploy STB dan Cloudflare Tunnel | belum |
 | 5 | README.pdf, API Registry, API key untuk kelompok lain | belum |
+
+## Arsitektur deploy
+
+```
+Klien (aplikasi, kelompok lain)
+  -> Cloudflare Tunnel (https://donorkita.stei.site)  -> tunnel  (cloudflared)
+  -> gateway  (Nginx 1.28, :80; di STB dipetakan ke GATEWAY_PORT=8081)
+       /api/auth/*  -> auth  (FastAPI, SQLite auth.db)
+       /api/*       -> core  (FastAPI, SQLite core.db)
+```
+
+| Kontainer | Peran | Batas sumber daya |
+|---|---|---|
+| `gateway` (Nginx) | Satu-satunya pintu masuk: routing, pembatasan pemanggilan (10 permintaan/detik per IP, login 10/menit), memblokir `/api/auth/internal`, error JSON | 64 MB, 0,25 CPU |
+| `core` (FastAPI) | Bounded context bisnis sebagai modul; SQLite `core.db` di volume `core-data` | 256 MB, 0,5 CPU |
+| `auth` (FastAPI) | Identitas & Akses: akun, JWT, refresh token, API key; SQLite `auth.db` di volume `auth-data` | 128 MB, 0,25 CPU |
+| `tunnel` (cloudflared, profil `tunnel`) | Membuka gateway ke internet tanpa membuka port | 64 MB, 0,25 CPU |
+
+Semua kontainer memakai `restart: unless-stopped`. Basis data tidak membuka port. Pada uji
+lokal, core memakai sekitar 65 MB dan auth sekitar 53 MB memori.
 
 ## Arsitektur kode
 
@@ -63,6 +86,70 @@ Aturan domain (semua angka dapat disetel lewat `.env`):
   ditunda, dan pra-skrining dalam 30 hari terakhir tanpa jawaban berisiko.
 - **Skor prioritas:** 0,5 × kedekatan + 0,3 × keandalan (donasi+1)/(diundang+2)
   + 0,1 × golongan identik + 0,1 × lama sejak layak.
+
+## Cara mendapat akses
+
+| Pemanggil | Autentikasi | Cara mendapatkan |
+|---|---|---|
+| Pengguna aplikasi | `Authorization: Bearer <access_token>` | `POST /api/auth/register` (peran `donor` atau `requester`), lalu `POST /api/auth/login`. Access token berlaku 12 jam; perbarui dengan `POST /api/auth/refresh` |
+| Petugas UDD/RS | JWT peran `staff` | Dibuat admin lewat `POST /api/auth/users` |
+| Kelompok lain (server ke server) | `X-API-Key: <key>` | Minta ke admin DonorKita. Admin membuat lewat `POST /api/auth/api-keys`; key hanya tampil sekali dan dapat dicabut kapan saja |
+| Publik | tanpa autentikasi | Hanya `/api/health` |
+
+Endpoint baca publik (`/donation-events`, `/blood-stock`, `/requests/summary`, `/facilities`,
+`/changes`) menerima `X-API-Key` atau JWT pengguna. Pencabutan API key berlaku paling lambat
+60 detik karena core menyimpan hasil verifikasi sebentar.
+
+**Akun uji** (data uji, bukan data pribadi asli), password sesuai `DEMO_PASSWORD` di `.env`:
+
+| Email | Peran |
+|---|---|
+| `pendonor@demo.test` | `donor` (profil golongan O+ sudah lengkap dan layak) |
+| `pemohon@demo.test` | `requester` |
+| `petugas@demo.test` | `staff` |
+
+Ditambah satu API key uji sesuai `SEED_API_KEY`, dan akun admin dari `ADMIN_EMAIL`/`ADMIN_PASSWORD`.
+
+### Endpoint auth (`/api/auth`)
+
+| Metode | Path | Akses | Fungsi |
+|---|---|---|---|
+| GET | `/health` | publik | `{"status":"ok"}` |
+| POST | `/register` | publik | Daftar akun `donor` atau `requester` |
+| POST | `/login` | publik (10/menit) | Access token (JWT) + refresh token; salah password: `invalid_credentials` |
+| POST | `/refresh` | refresh token | Rotasi token |
+| POST | `/logout` | refresh token | Cabut refresh token |
+| GET | `/me` | jwt | Profil akun |
+| POST/GET | `/users` | jwt admin | Buat akun peran apa pun (mis. petugas) / daftar akun |
+| POST/GET | `/api-keys` | jwt admin | Buat API key / daftar key (tanpa nilai key) |
+| DELETE | `/api-keys/{id}` | jwt admin | Cabut API key |
+
+### Contoh request
+
+```bash
+BASE=https://donorkita.stei.site/api      # di LAN STB: http://192.168.137.96:8081/api
+
+curl $BASE/health
+
+# Kelompok lain: kegiatan donor terdekat dan stok yang menipis
+curl -H "X-API-Key: <api-key>" "$BASE/donation-events?lat=-6.89&lon=107.61&radius_m=10000"
+curl -H "X-API-Key: <api-key>" "$BASE/blood-stock?level=low"
+curl -H "X-API-Key: <api-key>" "$BASE/changes?since=0"
+
+# Login lalu simpan token
+TOKEN=$(curl -s -X POST $BASE/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"pemohon@demo.test","password":"<DEMO_PASSWORD>"}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['access_token'])")
+
+# Ajukan permintaan darah
+curl -X POST $BASE/requests -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"facility_id":"fac_3","patient_ref":"FRM-001","blood_type":"o","rhesus":"positive",
+       "component":"prc","units":1,"urgency":"urgent","needed_by":"2026-12-01T10:00:00Z"}'
+
+# Admin membuat API key untuk kelompok lain
+curl -X POST $BASE/auth/api-keys -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' -d '{"name":"KotaSiaga (Smart City)"}'
+```
 
 ## Daftar endpoint
 
@@ -116,6 +203,32 @@ Tipe perubahan di `/changes`: `request.created`, `request.verified`, `request.re
 
 ID berupa string buram berawalan: `req_`, `inv_`, `evt_`, `res_`, `fac_`, `ntf_`.
 
+## Format respons
+
+Sukses: `{"data": ..., "meta": {"seq", "updated_at", "source", "stale"}}`; daftar menambah `meta.total`.
+Error: `{"error": {"code", "message", "request_id"}}`; header `X-Request-ID` ikut dikirim.
+
+| HTTP | `error.code` |
+|---|---|
+| 401 | `invalid_api_key`, `invalid_token`, `invalid_credentials` |
+| 403 | `forbidden` |
+| 404 | `not_found` |
+| 409 | `conflict` |
+| 422 | `validation_error` |
+| 429 | `rate_limited` |
+| 503 | `upstream_unavailable` |
+| 500 | `internal_error` (lihat "Perubahan kontrak") |
+
+## Menjalankan dengan Docker
+
+```bash
+cp .env.example .env        # isi JWT_SECRET, INTERNAL_TOKEN, ADMIN_PASSWORD, DEMO_PASSWORD, SEED_API_KEY
+docker compose up -d --build
+curl http://localhost:8081/api/health            # {"status":"ok"}
+docker compose ps                                # core, auth, gateway: healthy
+docker compose --profile tunnel up -d            # tambah Cloudflare Tunnel (butuh TUNNEL_TOKEN)
+```
+
 ## Menjalankan di laptop
 
 ```bash
@@ -139,29 +252,22 @@ python -c "import jwt,time;print(jwt.encode({'sub':'10','role':'donor','name':'U
 
 ```bash
 cd core-service && python -m pytest tests -q
+cd auth-service && python -m pytest tests -q
 ```
 
-52 pengujian: fondasi (envelope, error, seq, umpan perubahan), aturan domain (kompatibilitas,
+auth-service: 10 pengujian (daftar, login, klaim JWT, validasi, larangan mendaftar sebagai
+petugas, rotasi refresh token, pembuatan akun petugas oleh admin, siklus API key termasuk
+pencabutan, API key uji, kenaikan `seq`).
+
+core-service: 52 pengujian: fondasi (envelope, error, seq, umpan perubahan), aturan domain (kompatibilitas,
 kelayakan, skor, geo), alur penuh permintaan sampai terpenuhi, eskalasi radius, kedaluwarsa,
 penundaan pendonor, verifikasi dan hak akses, validasi input, kontrak kegiatan donor untuk
 KotaSiaga (`TitikTujuan`), reservasi dan slot, level stok dan notifikasi, ringkasan tanpa data
 pribadi, dan reset umpan perubahan.
 
-## Format respons
+## Mock mode *(menyusul, Tahap 3)*
 
-Sukses: `{"data": ..., "meta": {"seq", "updated_at", "source", "stale"}}`; daftar menambah `meta.total`.
-Error: `{"error": {"code", "message", "request_id"}}`; header `X-Request-ID` ikut dikirim.
-
-| HTTP | `error.code` |
-|---|---|
-| 401 | `invalid_api_key`, `invalid_token`, `invalid_credentials` |
-| 403 | `forbidden` |
-| 404 | `not_found` |
-| 409 | `conflict` |
-| 422 | `validation_error` |
-| 429 | `rate_limited` |
-| 503 | `upstream_unavailable` |
-| 500 | `internal_error` (lihat "Perubahan kontrak") |
+## Deploy di STB *(menyusul, Tahap 4)*
 
 ## Perubahan kontrak yang perlu disampaikan ke owner klaster
 
@@ -177,9 +283,3 @@ Error: `{"error": {"code", "message", "request_id"}}`; header `X-Request-ID` iku
 - Ambang stok `low`/`critical` berlaku global, belum per fasilitas atau komponen.
 - Fasilitas diisi admin atau data uji; adapter OpenStreetMap (Overpass) belum dibuat.
 - Notifikasi hanya in-app (dipoll aplikasi); push notification ditangani di aplikasi/layanan integrasi.
-
-## Cara mendapat akses *(menyusul, Tahap 3)*
-
-## Mock mode *(menyusul, Tahap 3)*
-
-## Deploy di STB *(menyusul, Tahap 4)*
